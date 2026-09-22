@@ -93,10 +93,10 @@ Panel {
     dayOffset = next
   }
 
-  // Called by the bar widget after a refresh. A signal handler must not be
-  // invoked directly, so expose a real method and let the handler use it too.
+  // The bar widget calls this after each refresh (it owns the polling loop).
+  // A method, not an onPayloadChanged handler: handlers are signals and must
+  // not be invoked directly, and the widget already repaints on every poll.
   function repaintChart() { chart.requestPaint() }
-  onPayloadChanged: repaintChart()
   onWindowHoursChanged: chart.requestPaint()
   onDayOffsetChanged: chart.requestPaint()
   onNowSecChanged: chart.requestPaint()
