@@ -32,6 +32,7 @@ DEFAULT_CONFIG = "~/.config/omarchy/glucose/config.json"
 DEFAULT_CACHE = "~/.local/state/glucose/last.json"
 DEFAULT_TOKEN_CACHE = "~/.local/state/glucose/token.json"
 DEFAULT_GUARD_CACHE = "~/.local/state/glucose/login-guard.json"
+DEFAULT_HISTORY = "~/.local/state/glucose/history.json"
 
 # LibreLinkUp requires a client identity; the server rejects unknown products.
 LLU_PRODUCT = "llu.ios"
@@ -1071,6 +1072,39 @@ def attach_interpretation(payload, config, force, verbose):
         write_json_file(state_path, result)
 
 
+def merge_history(payload, config, verbose):
+    """Persist a rolling multi-day series.
+
+    LibreLinkUp's graph endpoint only returns ~12 hours, so the panel can only
+    show yesterday once successive polls have been accumulated here. Points are
+    deduped by timestamp and trimmed to a retention window.
+    """
+    if payload.get("source") == "mock":
+        return
+    section = config.get("history") or {}
+    if section.get("enabled") is False:
+        return
+    path = expand(section.get("path") or DEFAULT_HISTORY)
+    retention = float(section.get("retentionHours") or 168)
+
+    merged = {}
+    for point in list(load_json_file(path) or []) + list(payload.get("series") or []):
+        if not isinstance(point, dict):
+            continue
+        stamp = point.get("t")
+        value = point.get("v")
+        if not isinstance(stamp, (int, float)) or not isinstance(value, (int, float)):
+            continue
+        merged[int(stamp)] = {"v": float(value), "t": int(stamp), "tr": int(point.get("tr") or 0)}
+
+    cutoff = int(time.time() - retention * 3600)
+    series = sorted((p for p in merged.values() if p["t"] >= cutoff), key=lambda p: p["t"])
+    payload["series"] = series
+    payload["historyRetentionHours"] = retention
+    write_json_file(path, series)
+    debug(verbose, "history: %d points retained (%.1f days)" % (len(series), retention / 24.0))
+
+
 def main(argv):
     parser = argparse.ArgumentParser(description="Fetch CGM data for the Omarchy glucose widget.")
     parser.add_argument("--config", default=os.environ.get("GLUCOSE_CONFIG", DEFAULT_CONFIG))
@@ -1105,6 +1139,10 @@ def main(argv):
     try:
         config = load_config(args.config, required=bool(args.source != "mock"))
         payload = build_payload(config, args)
+        try:
+            merge_history(payload, config, args.debug)
+        except Exception as exc:  # noqa: BLE001 - history is best-effort
+            debug(args.debug, "history merge failed: %s" % exc)
         try:
             attach_interpretation(payload, config, args.interpret, args.debug)
         except Exception as exc:  # noqa: BLE001 - interpretation is optional

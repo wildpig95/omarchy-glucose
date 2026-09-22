@@ -43,6 +43,7 @@ Panel {
   property int windowHours: 6
   property int dayOffset: 0
   property bool initialised: false
+  property var hoverPoint: null
 
   readonly property int windowEndSec: nowSec - dayOffset * 86400
   readonly property var windowPoints: Model.sliceWindow(series, windowEndSec, windowHours)
@@ -66,6 +67,16 @@ Panel {
       return dayOffset + " " + t("daysAgo")
     }
     return Model.formatClock(start) + " \u2013 " + Model.formatClock(windowEndSec)
+  }
+
+  // Pixel x of the hovered reading, mirroring chartPoints' mapping.
+  readonly property real hoverX: {
+    if (!hoverPoint) return -1
+    var left = Style.space(34)
+    var plotW = Math.max(1, chart.width - left)
+    var span = Math.max(1, windowHours * 3600)
+    var startSec = windowEndSec - span
+    return left + ((Number(hoverPoint.t) - startSec) / span) * plotW
   }
 
   // ---- lifecycle ----------------------------------------------------------
@@ -97,8 +108,8 @@ Panel {
   // A method, not an onPayloadChanged handler: handlers are signals and must
   // not be invoked directly, and the widget already repaints on every poll.
   function repaintChart() { chart.requestPaint() }
-  onWindowHoursChanged: chart.requestPaint()
-  onDayOffsetChanged: chart.requestPaint()
+  onWindowHoursChanged: { hoverPoint = null; chart.requestPaint() }
+  onDayOffsetChanged: { hoverPoint = null; chart.requestPaint() }
   onNowSecChanged: chart.requestPaint()
 
   // IPC lives on the bar widget (it owns the polling loop and exists even
@@ -358,16 +369,15 @@ Panel {
                 ctx.stroke()
               }
 
-              // out-of-range markers, so excursions survive the downscale
+              // every reading gets a dot: green in range, yellow high, red low
+              var dotRadius = Math.max(1.6, Style.space(2))
               for (var runIndex2 = 0; runIndex2 < runs.length; runIndex2++) {
                 var geom2 = Model.chartPoints(runs[runIndex2], plotW, plotH, domain, startSec, endSec)
                 for (var index2 = 0; index2 < geom2.length; index2++) {
                   var point = geom2[index2]
-                  if (!point.out) continue
-                  var pointState = Model.rangeState(point.v, targetLow, targetHigh)
-                  ctx.fillStyle = Model.paintColor(pointState)
+                  ctx.fillStyle = Model.pointColor(Model.rangeState(point.v, targetLow, targetHigh))
                   ctx.beginPath()
-                  ctx.arc(left + point.x, top + point.y, Math.max(1.5, Style.space(2)), 0, Math.PI * 2)
+                  ctx.arc(left + point.x, top + point.y, dotRadius, 0, Math.PI * 2)
                   ctx.fill()
                 }
               }
@@ -382,6 +392,23 @@ Panel {
                 ctx.fill()
               }
 
+              // hover crosshair, driven by the MouseArea below
+              if (root.hoverPoint && root.hoverX >= 0) {
+                var hx = root.hoverX
+                var hy = yFor(Number(root.hoverPoint.v))
+                ctx.strokeStyle = Model.rgbaOf(Color.foreground, 0.35)
+                ctx.lineWidth = 1
+                ctx.beginPath()
+                ctx.moveTo(hx, top)
+                ctx.lineTo(hx, bottom)
+                ctx.stroke()
+                ctx.fillStyle = Model.pointColor(
+                  Model.rangeState(root.hoverPoint.v, targetLow, targetHigh))
+                ctx.beginPath()
+                ctx.arc(hx, hy, Math.max(3, Style.space(4)), 0, Math.PI * 2)
+                ctx.fill()
+              }
+
               // x-axis labels
               ctx.fillStyle = Model.rgbaOf(Color.foreground, 0.5)
               ctx.font = Style.font.caption + "px " + Style.font.family
@@ -390,6 +417,55 @@ Panel {
               ctx.fillText(Model.formatClock(startSec), left, h - Style.space(3))
               ctx.textAlign = "right"
               ctx.fillText(Model.formatClock(endSec), right, h - Style.space(3))
+            }
+          }
+
+          // Hover readout: value and time at the cursor.
+          Rectangle {
+            id: hoverTip
+            visible: root.hoverPoint !== null && root.hoverX >= 0
+            x: Math.max(0, Math.min(root.hoverX - width / 2, parent.width - width))
+            y: 0
+            width: hoverLabel.implicitWidth + Style.spacing.sm * 2
+            height: hoverLabel.implicitHeight + Style.spacing.xxs * 2
+            radius: Style.cornerRadius
+            color: Model.rgbaOf(Color.background, 0.92)
+            border.width: Style.normalBorderWidth
+            border.color: Model.rgbaOf(Color.foreground, 0.25)
+
+            Text {
+              id: hoverLabel
+              anchors.centerIn: parent
+              text: root.hoverPoint
+                ? Model.formatValue(root.hoverPoint.v, root.unit) + " " + Model.unitSuffix(root.unit)
+                  + "  " + Model.formatClock(root.hoverPoint.t)
+                : ""
+              color: root.hoverPoint
+                ? Model.pointColor(Model.rangeState(root.hoverPoint.v, root.targetLow, root.targetHigh))
+                : Color.foreground
+              font.family: Style.font.family
+              font.pixelSize: Style.font.caption
+              renderType: Text.NativeRendering
+            }
+          }
+
+          MouseArea {
+            id: chartMouse
+            anchors.fill: parent
+            hoverEnabled: true
+            acceptedButtons: Qt.NoButton
+            onPositionChanged: function(mouse) {
+              var left = Style.space(34)
+              var plotW = Math.max(1, chart.width - left)
+              var span = Math.max(1, root.windowHours * 3600)
+              var startSec = root.windowEndSec - span
+              var ratio = Math.max(0, Math.min(1, (mouse.x - left) / plotW))
+              root.hoverPoint = Model.nearestByTime(root.windowPoints, startSec + ratio * span)
+              chart.requestPaint()
+            }
+            onExited: {
+              root.hoverPoint = null
+              chart.requestPaint()
             }
           }
         }

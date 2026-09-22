@@ -322,3 +322,25 @@ rm -rf ~/.config/omarchy/glucose ~/.local/state/glucose
 
 判定结果写入 `~/.local/state/glucose/jev.json`；弹窗直接读 `last.json` 里的
 `interpretation` 字段。
+
+## 历史数据与「昨天 / 前天」
+
+LibreLinkUp 的 `graph` 接口**每次只返回约 12 小时**（实测请求 72 小时也只给约 12 小时、
+~47 个点）。所以弹窗里点 `24h` 后用 `‹ ›` 翻到昨天、前天，靠的不是云端——
+而是插件**每次轮询都把读数累积**到本地滚动历史里：
+
+```
+~/.local/state/glucose/history.json      # 按时间戳去重，默认保留 7 天
+```
+
+配置：
+
+```json
+"history": {
+  "enabled": true,
+  "retentionHours": 168
+}
+```
+
+含义：**从你开始运行这个组件的那天起**，历史会一天天攒起来，昨天/前天才有数据。
+接上 Nightscout 的话历史更完整（`source` 改成 `nightscout`），因为它本身就存长期数据。

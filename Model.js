@@ -79,6 +79,28 @@ function isOutOfRange(state) {
   return state !== "inRange" && state !== "unknown"
 }
 
+// Chart dot colour: green in range, yellow above, red below.
+function pointColor(state) {
+  if (state === "inRange") return "#63bd7a"
+  if (state === "high" || state === "veryHigh") return "#e0b24a"
+  if (state === "low" || state === "veryLow") return "#e0574f"
+  return "#8b939c"
+}
+
+// Nearest reading to a target time, for the chart hover readout.
+function nearestByTime(points, targetSec) {
+  var best = null
+  var bestDelta = Infinity
+  for (var index = 0; index < (points || []).length; index++) {
+    var delta = Math.abs(Number(points[index].t) - Number(targetSec))
+    if (delta < bestDelta) {
+      bestDelta = delta
+      best = points[index]
+    }
+  }
+  return best
+}
+
 function paintColor(state) {
   return TRAFFIC[state] || TRAFFIC.unknown
 }

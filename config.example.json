@@ -28,6 +28,12 @@
     "seed": 7
   },
 
+  "history": {
+    "_comment": "滚动历史：LibreLinkUp 的 graph 接口只返回约 12 小时，所以要靠插件把每次轮询的点累积起来，昨天/前天才有数据可看。默认存 ~/.local/state/glucose/history.json。",
+    "enabled": true,
+    "retentionHours": 168
+  },
+
   "jev": {
     "_comment": "可选：让 Jev（TypeSafe System One）对当前曲线做一次类型化判断，显示在弹窗里。只做解读，不隐藏读数、不影响报警、不是医疗器械。key 优先取环境变量 TYPESAFE_API_KEY，其次 ~/.winnow/env。",
     "enabled": false,
