@@ -245,7 +245,7 @@ BarWidget {
       lastErrorCode = ""
     }
     nowSec = Math.floor(Date.now() / 1000)
-    if (panelLoader.item && panelLoader.item.onPayloadChanged) panelLoader.item.onPayloadChanged()
+    if (panelLoader.item && panelLoader.item.repaintChart) panelLoader.item.repaintChart()
     evaluateAlerts()
     evaluateSensorAlert()
   }

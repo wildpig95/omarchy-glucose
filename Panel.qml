@@ -93,7 +93,10 @@ Panel {
     dayOffset = next
   }
 
-  onPayloadChanged: chart.requestPaint()
+  // Called by the bar widget after a refresh. A signal handler must not be
+  // invoked directly, so expose a real method and let the handler use it too.
+  function repaintChart() { chart.requestPaint() }
+  onPayloadChanged: repaintChart()
   onWindowHoursChanged: chart.requestPaint()
   onDayOffsetChanged: chart.requestPaint()
   onNowSecChanged: chart.requestPaint()
@@ -529,6 +532,22 @@ Panel {
           }
           color: Color.foreground
           opacity: 0.45
+          font.family: Style.font.family
+          font.pixelSize: Style.font.caption
+          renderType: Text.NativeRendering
+          wrapMode: Text.WordWrap
+        }
+
+        // ---- optional Jev interpretation ------------------------------------
+        // Informational only: it never hides a reading and never changes an
+        // alert. Empty unless jev.enabled (or --interpret) produced a label.
+        Text {
+          width: parent.width
+          visible: text !== ""
+          text: Model.interpretationText(
+            root.payload ? root.payload.interpretation : null, root.lang)
+          color: Color.foreground
+          opacity: 0.6
           font.family: Style.font.family
           font.pixelSize: Style.font.caption
           renderType: Text.NativeRendering

@@ -30,6 +30,8 @@ from datetime import datetime, timedelta, timezone
 
 DEFAULT_CONFIG = "~/.config/omarchy/glucose/config.json"
 DEFAULT_CACHE = "~/.local/state/glucose/last.json"
+DEFAULT_TOKEN_CACHE = "~/.local/state/glucose/token.json"
+DEFAULT_GUARD_CACHE = "~/.local/state/glucose/login-guard.json"
 
 # LibreLinkUp requires a client identity; the server rejects unknown products.
 LLU_PRODUCT = "llu.ios"
@@ -261,15 +263,22 @@ def llu_attempt_login(email, password, region, verbose):
 
 
 def llu_login(email, password, region, verbose):
-    """Log in, discovering the region when it is unknown."""
+    """Log in, discovering the region when it is unknown or misconfigured."""
     if region:
-        result = llu_attempt_login(email, password, region, verbose)
-        if "redirect" in result:
-            return llu_attempt_login(email, password, result["redirect"], verbose), result["redirect"]
-        return result, region
+        try:
+            result = llu_attempt_login(email, password, region, verbose)
+            if "redirect" in result:
+                return llu_attempt_login(email, password, result["redirect"], verbose), result["redirect"]
+            return result, region
+        except FetchError as exc:
+            # A stale/wrong region in config would otherwise fail forever;
+            # fall through to the probe order instead of surfacing 911.
+            if exc.code != "region":
+                raise
+            debug(verbose, "configured region %r rejected (911); probing instead" % region)
 
-    # No configured region: the global endpoint answers with the account's
-    # region, and a 911 there tells us to probe.
+    # No configured region (or it was rejected): the global endpoint answers
+    # with the account's region, and a 911 there tells us to probe.
     try:
         result = llu_attempt_login(email, password, "", verbose)
         if "redirect" in result:
@@ -348,8 +357,8 @@ def llu_session(section, verbose):
 
     # Reuse a cached token when it still has life left: the API rate-limits
     # logins, and the widget polls every minute.
-    token_cache_path = expand(section.get("tokenCache") or "~/.local/state/glucose/token.json")
-    guard_path = expand(section.get("guardCache") or "~/.local/state/glucose/login-guard.json")
+    token_cache_path = expand(section.get("tokenCache") or DEFAULT_TOKEN_CACHE)
+    guard_path = expand(section.get("guardCache") or DEFAULT_GUARD_CACHE)
     session = None
     cached = load_json_file(token_cache_path)
     if cached and cached.get("token") and cached.get("accountId"):
@@ -377,26 +386,29 @@ def llu_session(section, verbose):
     return session, host
 
 
-def llu_connections(session, host):
+def llu_connections(session, host, token_cache_path=None):
     """Return the raw /llu/connections list for a logged-in session."""
     status, payload, raw = http_json(
         "%s/llu/connections" % host, "GET", llu_auth_headers(session["token"], session["accountId"])
     )
     if payload is None or payload.get("status") != 0:
-        token_cache_path = expand("~/.local/state/glucose/token.json")
-        if os.path.exists(token_cache_path):
-            try:
-                os.remove(token_cache_path)
-            except OSError:
-                pass
         code = "auth" if (payload or {}).get("status") == 401 or status == 401 else "protocol"
+        # Only a rejected token should be evicted; a transient 5xx must not
+        # force a fresh login against the rate limiter.
+        if code == "auth":
+            token_cache_path = expand(token_cache_path or DEFAULT_TOKEN_CACHE)
+            if os.path.exists(token_cache_path):
+                try:
+                    os.remove(token_cache_path)
+                except OSError:
+                    pass
         raise FetchError(code, "connections request failed (http %s)" % status)
     return payload.get("data") or []
 
 
 def fetch_librelinkup(section, hours, verbose):
     session, host = llu_session(section, verbose)
-    connections = llu_connections(session, host)
+    connections = llu_connections(session, host, expand(section.get("tokenCache") or DEFAULT_TOKEN_CACHE))
     if not isinstance(connections, list) or not connections:
         # Derive on demand: a session restored from the token cache predates any
         # `claims` key, and re-logging in just to read the role would burn a
@@ -691,7 +703,7 @@ def run_whoami(config, args):
         "hint": "",
     }
 
-    for conn in llu_connections(session, host):
+    for conn in llu_connections(session, host, expand(section.get("tokenCache") or DEFAULT_TOKEN_CACHE)):
         sensor = conn.get("sensor") or {}
         latest = conn.get("glucoseMeasurement") or {}
         result["connections"].append({
@@ -912,6 +924,153 @@ def error_payload(source, code, message, previous=None):
     return payload
 
 
+# --------------------------------------------------------------------------
+# optional Jev interpretation (TypeSafe System One)
+#
+# Jev does NOT generate text or gate alerts. It classifies the current trace
+# into a fixed label plus a few probabilities; code owns the wording, the
+# thresholds and every safety decision. Readings are always shown and emergency
+# behaviour never depends on this optional extra.
+# --------------------------------------------------------------------------
+
+JEV_URL = "https://api.typesafe.ai/v1/systemone"
+JEV_DEFAULT_MODEL = "jev-1.13.0"
+JEV_PATTERNS = [
+    "stable_in_range",
+    "post_meal_excursion",
+    "rising_fast",
+    "falling_fast",
+    "low_recovering",
+    "possible_artifact",
+]
+
+
+def jev_api_key(section):
+    """Key from config, the environment, or the shared ~/.winnow/env file."""
+    key = (section.get("apiKey") or os.environ.get("TYPESAFE_API_KEY") or "").strip()
+    if key:
+        return key
+    for path in ("~/.winnow/env", "~/.pi/env"):
+        try:
+            with open(expand(path), "r", encoding="utf-8") as handle:
+                for line in handle:
+                    if line.startswith("TYPESAFE_API_KEY="):
+                        return line.split("=", 1)[1].strip()
+        except OSError:
+            continue
+    return ""
+
+
+def jev_recent(payload, minutes=120):
+    """The last couple of hours, as {minAgo, value} — evidence, not a summary."""
+    current_t = int((payload.get("current") or {}).get("t") or 0)
+    out = []
+    for point in payload.get("series") or []:
+        age = current_t - int(point["t"])
+        if 0 <= age <= minutes * 60:
+            out.append({"minAgo": age // 60, "value": round(float(point["v"]), 1)})
+    return out[-24:]
+
+
+def build_jev_state(payload):
+    current = payload.get("current") or {}
+    activated = (payload.get("sensor") or {}).get("activatedAt")
+    age_hours = None
+    if activated:
+        age_hours = round((int(current.get("t") or 0) - int(activated)) / 3600.0, 1)
+    return {
+        "readings_are_mg_per_dl": True,
+        "current_mgdl": current.get("v"),
+        "minutes_since_reading": int(current.get("ageSec") or 0) // 60,
+        "trend_code": current.get("tr"),
+        "target_low_mgdl": payload.get("targetLow"),
+        "target_high_mgdl": payload.get("targetHigh"),
+        "sensor_age_hours": age_hours,
+        "recent_readings": jev_recent(payload),
+    }
+
+
+def interpret_reading(payload, section, verbose):
+    key = jev_api_key(section)
+    if not key:
+        return {"error": "no TypeSafe API key (set TYPESAFE_API_KEY or jev.apiKey)"}
+
+    questions = {
+        "pattern": {
+            "type": "choice",
+            "instructions": "Classify the recent continuous glucose monitor trace.",
+            "criteria": {
+                "stable_in_range": "Mostly within target range with no clear excursion",
+                "post_meal_excursion": "A rise that looks like a meal, within or above range",
+                "rising_fast": "Clearly rising and still climbing",
+                "falling_fast": "Clearly falling and still dropping",
+                "low_recovering": "Below range, or just came back from below range",
+                "possible_artifact": "Looks like a sensor artifact rather than a real change",
+            },
+        },
+        "artifact_likely": {
+            "type": "noul",
+            "instructions": "Is the latest reading likely a sensor artifact (compression low, stale sensor, an implausible jump) rather than a real glucose change?",
+            "criteria": {"true": "Likely an artifact", "false": "Looks like a real reading"},
+        },
+        "needs_attention": {
+            "type": "noul",
+            "instructions": "Does this trace warrant telling the user soon (worth a look, not an emergency)?",
+            "criteria": {"true": "Worth a look soon", "false": "Nothing notable"},
+        },
+    }
+    body = {"model": section.get("model") or JEV_DEFAULT_MODEL, "state": build_jev_state(payload), "questions": questions}
+    status, parsed, raw = http_json(
+        JEV_URL,
+        "POST",
+        {"Content-Type": "application/json", "Authorization": "Bearer %s" % key},
+        body,
+        timeout=20,
+        attempts=2,
+    )
+    if parsed is None or status != 200:
+        return {"error": "Jev HTTP %s: %s" % (status, raw[:160])}
+
+    answers = parsed.get("answers") or {}
+    debug(verbose, "Jev pattern=%s" % ((answers.get("pattern") or {}).get("choice")))
+    return {
+        "pattern": (answers.get("pattern") or {}).get("choice"),
+        "patternConfidence": (answers.get("pattern") or {}).get("confidence"),
+        "artifactLikely": (answers.get("artifact_likely") or {}).get("noul"),
+        "needsAttention": (answers.get("needs_attention") or {}).get("noul"),
+        "model": parsed.get("model") or JEV_DEFAULT_MODEL,
+        "at": int(time.time()),
+    }
+
+
+def attach_interpretation(payload, config, force, verbose):
+    """Add payload['interpretation'] when Jev is enabled (or --interpret)."""
+    if not payload.get("ok") or not payload.get("current"):
+        return
+    section = dict(config.get("jev") or {})
+    if not (force or section.get("enabled")):
+        return
+
+    state_path = expand(section.get("stateCache") or "~/.local/state/glucose/jev.json")
+    if not force:
+        last = load_json_file(state_path) or {}
+        min_interval = float(section.get("minIntervalSec") or 900)
+        if float(last.get("at") or 0) + min_interval > time.time():
+            payload["interpretation"] = dict(last, cached=True)
+            return
+        if section.get("onlyWhenOutOfRange", True):
+            low = payload.get("targetLow") or 70
+            high = payload.get("targetHigh") or 180
+            value = payload["current"].get("v")
+            if value is not None and low <= value <= high:
+                return
+
+    result = interpret_reading(payload, section, verbose)
+    payload["interpretation"] = result
+    if not result.get("error"):
+        write_json_file(state_path, result)
+
+
 def main(argv):
     parser = argparse.ArgumentParser(description="Fetch CGM data for the Omarchy glucose widget.")
     parser.add_argument("--config", default=os.environ.get("GLUCOSE_CONFIG", DEFAULT_CONFIG))
@@ -923,6 +1082,8 @@ def main(argv):
     parser.add_argument("--no-cache", action="store_true")
     parser.add_argument("--whoami", action="store_true",
                         help="report the account role and follower links, then exit")
+    parser.add_argument("--interpret", action="store_true",
+                        help="ask Jev to classify the current trace (one TypeSafe call)")
     parser.add_argument("--debug", action="store_true")
     args = parser.parse_args(argv)
 
@@ -944,6 +1105,10 @@ def main(argv):
     try:
         config = load_config(args.config, required=bool(args.source != "mock"))
         payload = build_payload(config, args)
+        try:
+            attach_interpretation(payload, config, args.interpret, args.debug)
+        except Exception as exc:  # noqa: BLE001 - interpretation is optional
+            debug(args.debug, "interpretation failed: %s" % exc)
     except ConfigError as exc:
         payload = error_payload(args.source or "unknown", "config", str(exc), previous)
     except FetchError as exc:

@@ -290,3 +290,35 @@ omarchy plugin disable wildpig.glucose
 rm -rf ~/.config/omarchy/plugins/wildpig.glucose
 rm -rf ~/.config/omarchy/glucose ~/.local/state/glucose
 ```
+
+## 可选：Jev 曲线解读（TypeSafe）
+
+接上 [TypeSafe](https://typesafe.ai) 的 Jev 后，弹窗里会多一行
+「Jev: 餐后波动 · 置信 55% · 伪值 28%」——它对**当前曲线**做一次类型化判断，
+帮你一眼看懂「这段是什么形态」。
+
+**它只是解读。** 不是医疗器械，也不会：
+
+- 隐藏任何读数
+- 改变或抑制任何高低血糖报警
+- 给出治疗建议
+
+配置（`~/.config/omarchy/glucose/config.json`）：
+
+```json
+"jev": {
+  "enabled": true,
+  "apiKey": "",
+  "model": "jev-1.13.0",
+  "onlyWhenOutOfRange": true,
+  "minIntervalSec": 900
+}
+```
+
+- key 优先取环境变量 `TYPESAFE_API_KEY`，其次 `~/.winnow/env`
+- `onlyWhenOutOfRange`：默认只在越界时调用（省钱）；设 `false` 则每次刷新都判断
+- `minIntervalSec`：两次调用最短间隔，默认 900 秒
+- 命令行试一次：`scripts/glucose-fetch.py --interpret`
+
+判定结果写入 `~/.local/state/glucose/jev.json`；弹窗直接读 `last.json` 里的
+`interpretation` 字段。

@@ -26,5 +26,14 @@
   "mock": {
     "_comment": "用于开发和预览的假数据。",
     "seed": 7
+  },
+
+  "jev": {
+    "_comment": "可选：让 Jev（TypeSafe System One）对当前曲线做一次类型化判断，显示在弹窗里。只做解读，不隐藏读数、不影响报警、不是医疗器械。key 优先取环境变量 TYPESAFE_API_KEY，其次 ~/.winnow/env。",
+    "enabled": false,
+    "apiKey": "",
+    "model": "jev-1.13.0",
+    "onlyWhenOutOfRange": true,
+    "minIntervalSec": 900
   }
 }

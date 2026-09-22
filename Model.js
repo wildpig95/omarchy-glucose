@@ -311,6 +311,41 @@ function label(key, lang) {
   return table[key] !== undefined ? table[key] : key
 }
 
+// Optional Jev interpretation. Jev classifies the trace into a fixed label;
+// the words, the thresholds and every safety decision live in code here.
+var PATTERN_LABELS = {
+  stable_in_range: { zh: "区间内平稳", en: "stable in range" },
+  post_meal_excursion: { zh: "餐后波动", en: "post-meal excursion" },
+  rising_fast: { zh: "快速上升", en: "rising fast" },
+  falling_fast: { zh: "快速下降", en: "falling fast" },
+  low_recovering: { zh: "低值回升", en: "recovering from low" },
+  possible_artifact: { zh: "可能是传感器伪值", en: "possible sensor artifact" }
+}
+
+function patternLabel(pattern, lang) {
+  var entry = PATTERN_LABELS[String(pattern || "")]
+  if (!entry) return ""
+  return String(lang || "zh") === "zh" ? entry.zh : entry.en
+}
+
+// "" when there is nothing worth showing (disabled, error, unknown label).
+function interpretationText(interp, lang) {
+  if (!interp || interp.error) return ""
+  var zh = String(lang || "zh") === "zh"
+  var parts = []
+  var label = patternLabel(interp.pattern, lang)
+  if (label) parts.push(label)
+  if (typeof interp.patternConfidence === "number") {
+    parts.push((zh ? "置信 " : "conf ") + Math.round(interp.patternConfidence * 100) + "%")
+  }
+  if (typeof interp.artifactLikely === "number" && interp.artifactLikely >= 0.3) {
+    parts.push((zh ? "伪值 " : "artifact ") + Math.round(interp.artifactLikely * 100) + "%")
+  }
+  if (interp.cached) parts.push(zh ? "缓存" : "cached")
+  if (parts.length === 0) return ""
+  return "Jev: " + parts.join(" · ")
+}
+
 // Canvas fill/stroke styles need an "rgba(...)" string; QML colour objects are
 // handed to the painter as strings only by accident, so build one explicitly.
 function rgbaOf(color, alpha) {
