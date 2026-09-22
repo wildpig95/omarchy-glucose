@@ -1,0 +1,129 @@
+{
+  "schemaVersion": 1,
+  "id": "wildpig.glucose",
+  "name": "Glucose",
+  "version": "0.1.0",
+  "author": "wildpig",
+  "description": "Continuous glucose monitor pill with a full-history detail popup (LibreLinkUp / Nightscout)",
+  "kinds": [
+    "bar-widget"
+  ],
+  "entryPoints": {
+    "barWidget": "BarWidget.qml"
+  },
+  "barWidget": {
+    "displayName": "Glucose",
+    "description": "Latest CGM reading with trend arrow, plus a popup with arbitrary time windows over real history",
+    "category": "Info",
+    "allowMultiple": false,
+    "defaultSection": "right",
+    "defaults": {
+      "unit": "mmol/L",
+      "palette": "traffic",
+      "lang": "zh",
+      "showTrend": true,
+      "showUnit": false,
+      "refreshIntervalSec": 60,
+      "staleMinutes": 20,
+      "source": "",
+      "windowHours": 6
+    },
+    "schema": [
+      {
+        "key": "unit",
+        "type": "enum",
+        "label": "单位 / Unit",
+        "options": ["mmol/L", "mg/dL"],
+        "defaultValue": "mmol/L"
+      },
+      {
+        "key": "palette",
+        "type": "enum",
+        "label": "配色 / Palette",
+        "options": ["traffic", "theme"],
+        "defaultValue": "traffic",
+        "description": "traffic: 红/绿/黄分级；theme: 只在与目标区间不符时用主题强调色"
+      },
+      {
+        "key": "lang",
+        "type": "enum",
+        "label": "语言 / Language",
+        "options": ["zh", "en"],
+        "defaultValue": "zh"
+      },
+      {
+        "key": "source",
+        "type": "string",
+        "label": "数据源覆盖 / Source override",
+        "defaultValue": "",
+        "description": "留空则用 ~/.config/omarchy/glucose/config.json 里的 source（librelinkup / nightscout / mock）"
+      },
+      {
+        "key": "refreshIntervalSec",
+        "type": "integer",
+        "label": "刷新间隔（秒） / Refresh interval (seconds)",
+        "min": 15,
+        "max": 3600,
+        "step": 15,
+        "defaultValue": 60
+      },
+      {
+        "key": "staleMinutes",
+        "type": "integer",
+        "label": "过期阈值（分钟） / Stale after (minutes)",
+        "min": 5,
+        "max": 240,
+        "step": 5,
+        "defaultValue": 20
+      },
+      {
+        "key": "showTrend",
+        "type": "enum",
+        "label": "显示趋势箭头 / Show trend arrow",
+        "options": ["true", "false"],
+        "defaultValue": "true"
+      },
+      {
+        "key": "showUnit",
+        "type": "enum",
+        "label": "在状态栏显示单位 / Show unit in the bar",
+        "options": ["false", "true"],
+        "defaultValue": "false"
+      },
+      {
+        "key": "windowHours",
+        "type": "integer",
+        "label": "面板默认窗口（小时） / Default popup window (hours)",
+        "min": 1,
+        "max": 24,
+        "step": 1,
+        "defaultValue": 6
+      },
+      {
+        "key": "sparkline",
+        "type": "enum",
+        "label": "状态栏迷你曲线 / Inline sparkline",
+        "options": ["false", "true"],
+        "defaultValue": "false",
+        "description": "在药丸里画最近 3 小时的曲线"
+      },
+      {
+        "key": "alerts",
+        "type": "enum",
+        "label": "高低血糖提醒 / Low-high alerts",
+        "options": ["false", "true"],
+        "defaultValue": "false",
+        "description": "越界时发桌面通知。注意：只在真实数据源下打开，mock 数据也会触发"
+      },
+      {
+        "key": "alertRepeatMinutes",
+        "type": "integer",
+        "label": "提醒重复间隔（分钟） / Alert repeat (minutes)",
+        "min": 5,
+        "max": 240,
+        "step": 5,
+        "defaultValue": 15
+      }
+    ]
+  }
+}

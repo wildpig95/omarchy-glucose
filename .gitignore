@@ -1,0 +1,10 @@
+# Credentials never live in this directory (see README: ~/.config/omarchy/glucose/),
+# but keep the ignore list anyway so a careless copy cannot leak them.
+config.json
+token.json
+last.json
+__pycache__/
+*.pyc
+login-guard.json
+jev.json
+*.tmp

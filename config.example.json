@@ -1,0 +1,30 @@
+{
+  "_comment": "复制到 ~/.config/omarchy/glucose/config.json，然后 chmod 600。这个文件里有密码，别提交到任何仓库。",
+
+  "source": "mock",
+
+  "historyHours": 24,
+
+  "librelinkup": {
+    "_comment": "瞬感通 / LibreLinkUp 账号（不是你登录瞬感宝的那个也行，见 README）。region 中国区填 cn。",
+    "email": "",
+    "password": "",
+    "region": "cn",
+    "patientId": ""
+  },
+
+  "nightscout": {
+    "_comment": "自建 Nightscout 时填这里，并把上面的 source 改成 nightscout。tokenType: secret（填管理后台的 API secret）或 token（填只读 token）。",
+    "url": "",
+    "token": "",
+    "tokenType": "secret",
+    "targetLow": 70,
+    "targetHigh": 180,
+    "patientName": ""
+  },
+
+  "mock": {
+    "_comment": "用于开发和预览的假数据。",
+    "seed": 7
+  }
+}
