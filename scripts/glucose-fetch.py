@@ -430,8 +430,11 @@ def run_set_credentials(config_path):
     section = dict(config.get("librelinkup") or {})
     default_email = (section.get("email") or os.environ.get("GLUCOSE_LLU_EMAIL") or "").strip()
 
-    prompt = "LibreLinkUp email" + (" [%s]" % default_email if default_email else "") + ": "
-    email = input(prompt).strip() or default_email
+    # Show the saved account only as a masked hint, so a screenshot or screen
+    # share of the login prompt does not expose the full address. Pressing
+    # Enter still uses the real saved email.
+    hint = " [%s]" % mask_email(default_email) if default_email else ""
+    email = input("LibreLinkUp email%s: " % hint).strip() or default_email
     if not email:
         print("email is required", file=sys.stderr)
         return 1
