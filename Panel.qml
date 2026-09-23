@@ -538,15 +538,14 @@ Panel {
             enabled: root.dayOffset > 0
             onClicked: root.shiftDay(-1)
           }
+        }
 
-          Item { width: Style.spacing.sm; height: 1 }
-
-          Button {
-            text: root.t("refresh")
-            tooltipText: root.zh ? "快捷键：R" : "Shortcut: R"
-            foreground: Color.foreground
-            onClicked: if (root.hostWidget && root.hostWidget.refresh) root.hostWidget.refresh()
-          }
+        // Actions on their own row: sharing the row above overflowed the panel
+        // width at 24h and clipped the last button (the account/login entry).
+        Row {
+          width: parent.width
+          layoutDirection: Qt.RightToLeft
+          spacing: Style.spacing.sm
 
           Button {
             text: root.t("account")
@@ -555,6 +554,13 @@ Panel {
               : "Enter LibreLinkUp credentials (stored in the keyring)"
             foreground: Color.foreground
             onClicked: root.openCredentials()
+          }
+
+          Button {
+            text: root.t("refresh")
+            tooltipText: root.zh ? "快捷键：R" : "Shortcut: R"
+            foreground: Color.foreground
+            onClicked: if (root.hostWidget && root.hostWidget.refresh) root.hostWidget.refresh()
           }
         }
 
