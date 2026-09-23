@@ -383,3 +383,42 @@ omarchy plugin validate .
 python3 -m py_compile scripts/glucose-fetch.py
 node --check Model.js
 ```
+
+## 更新
+
+插件目录本身就是一个 git 仓库，附带更新脚本：
+
+```bash
+scripts/glucose-update.sh      # git fetch + 仅快进合并；HEAD 变了才 rescanPlugins
+```
+
+### 让它自动保持最新（systemd 用户定时器）
+
+```bash
+mkdir -p ~/.config/systemd/user
+cat > ~/.config/systemd/user/glucose-update.service <<'EOF'
+[Unit]
+Description=Update the omarchy-glucose shell plugin from git
+[Service]
+Type=oneshot
+ExecStart=%h/.config/omarchy/plugins/omarchy-glucose/scripts/glucose-update.sh
+EOF
+cat > ~/.config/systemd/user/glucose-update.timer <<'EOF'
+[Unit]
+Description=Periodically update the omarchy-glucose shell plugin
+[Timer]
+OnBootSec=5min
+OnUnitActiveSec=6h
+RandomizedDelaySec=5min
+Persistent=true
+[Install]
+WantedBy=timers.target
+EOF
+systemctl --user daemon-reload
+systemctl --user enable --now glucose-update.timer
+```
+
+> 把 `ExecStart` 的目录换成你实际的安装目录（默认
+> `~/.config/omarchy/plugins/omarchy-glucose`）。停用：
+> `systemctl --user disable --now glucose-update.timer`。
+> 脚本只做**快进合并**，本地有改动/分叉时会跳过，绝不覆盖你的工作。
