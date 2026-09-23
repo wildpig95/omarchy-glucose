@@ -6,9 +6,8 @@
   "historyHours": 24,
 
   "librelinkup": {
-    "_comment": "瞬感通 / LibreLinkUp 账号（不是你登录瞬感宝的那个也行，见 README）。region 中国区填 cn。",
+    "_comment": "瞬感通 / LibreLinkUp 账号。密码不要写在这里：运行 scripts/glucose-fetch.py --set-credentials 输入一次，存进系统 keyring。这里只保留邮箱（非机密）和区域。也可用环境变量 GLUCOSE_LLU_EMAIL / GLUCOSE_LLU_PASSWORD。",
     "email": "",
-    "password": "",
     "region": "cn",
     "patientId": ""
   },

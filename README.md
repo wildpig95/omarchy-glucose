@@ -48,32 +48,30 @@ LibreLinkUp（瞬感通）只读接口，或你自己的 Nightscout。
 1. 打开**瞬感宝** → 找「共享 / 数据共享 / 连接的应用」→ 填一个邮箱发出邀请
    - 先试你自己的邮箱；若提示已注册，就换第二个邮箱
 2. 用那个邮箱注册登录 **瞬感通**，接受邀请，确认能看到曲线
-3. 编辑配置：
+3. 建配置（只放非机密项）：
 
 ```bash
+mkdir -p ~/.config/omarchy/glucose
 cp ~/.config/omarchy/plugins/wildpig.glucose/config.example.json \
    ~/.config/omarchy/glucose/config.json
-chmod 600 ~/.config/omarchy/glucose/config.json      # 里面有密码
-$EDITOR ~/.config/omarchy/glucose/config.json
+$EDITOR ~/.config/omarchy/glucose/config.json      # 只需填 email / region
 ```
 
-```json
-{
-  "source": "librelinkup",
-  "historyHours": 24,
-  "librelinkup": {
-    "email": "you@example.com",
-    "password": "你的瞬感通密码",
-    "region": "cn",
-    "patientId": ""
-  }
-}
+4. **输入账号密码**（密码存进系统 keyring，不写进任何文件）：
+
+```bash
+python3 ~/.config/omarchy/plugins/wildpig.glucose/scripts/glucose-fetch.py --set-credentials
 ```
 
-`region` 中国区填 `cn`（接口域名是 `api-cn.myfreestyle.cn`）。
-留空的话脚本会自己探测，但慢一些。
+提示输入邮箱（回车用配置里的）和密码（隐藏输入）；先验证能登录，再把密码存入
+keyring，并把邮箱/区域写回 config。**密码不会出现在 `config.json` 或任何 git 文件里。**
 
-4. 命令行验证，**先别管状态栏**：
+也可用环境变量（适合临时/CI）：`GLUCOSE_LLU_EMAIL` / `GLUCOSE_LLU_PASSWORD`。
+优先级：环境变量 → keyring → `config.json` 的 `password`（旧字段，仅向下兼容）。
+
+`region` 中国区填 `cn`（接口域名是 `api-cn.myfreestyle.cn`）；留空脚本会自己探测，但慢一些。
+
+5. 命令行验证，**先别管状态栏**：
 
 ```bash
 python3 ~/.config/omarchy/plugins/wildpig.glucose/scripts/glucose-fetch.py --whoami
@@ -142,7 +140,7 @@ Abbott 的模型里，**只有 follower（关注者）角色才能读数据**，
 **B. 用第二个邮箱当关注者**
 1. **瞬感宝** → 邀请第二个邮箱（比如 `xxx@gmail.com`）
 2. **瞬感通** → 用第二个邮箱**注册**并登录 → 接受邀请
-3. 把 `config.json` 里 `librelinkup.email/password` 换成第二个邮箱那组
+3. 重新运行 `--set-credentials`，输入第二个邮箱那组（同样只进 keyring）
 
 > 注意：只在瞬感通里**自己注册一个账号并不会自动看到任何东西**——注册出来的是
 > 又一个 patient，而不是 follower。必须走邀请。
@@ -344,3 +342,24 @@ LibreLinkUp 的 `graph` 接口**每次只返回约 12 小时**（实测请求 72
 
 含义：**从你开始运行这个组件的那天起**，历史会一天天攒起来，昨天/前天才有数据。
 接上 Nightscout 的话历史更完整（`source` 改成 `nightscout`），因为它本身就存长期数据。
+
+## 安全 / 凭据
+
+- **代码和仓库里没有任何账号密码。** 密码只用 `--set-credentials` 输入一次，存进桌面
+  keyring（libsecret）；`config.json` 只保留邮箱（非机密）和区域。
+- 凭据优先级：环境变量 `GLUCOSE_LLU_EMAIL` / `GLUCOSE_LLU_PASSWORD`
+  → keyring → `config.json` 的 `password`（旧字段，仅向下兼容）。
+- 缓存文件（`last.json` / `history.json` / `token.json`）权限均为 `0600`，且都在
+  `.gitignore` 里。
+- 这是**只读**接口，不会写回雅培云端；但血糖属于健康数据，注意本机与备份的隐私。
+- 非医疗器械，**不能据此做治疗决策**。
+
+## 开源 / 贡献
+
+MIT 许可（见 `LICENSE`）。欢迎提 Issue / PR。提交前请跑：
+
+```bash
+omarchy plugin validate .
+python3 -m py_compile scripts/glucose-fetch.py
+node --check Model.js
+```

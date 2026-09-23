@@ -18,9 +18,12 @@
 
 import argparse
 import base64
+import getpass
 import hashlib
 import json
 import os
+import shutil
+import subprocess
 import sys
 import time
 import urllib.error
@@ -349,12 +352,120 @@ def target_to_mgdl(value, uom):
     return float(value) if uom != 2 else float(value) * MGDL_PER_MMOL
 
 
+# Credentials are user-supplied, never hardcoded: environment, then the
+# desktop keyring (libsecret), then the config file as a legacy fallback.
+KEYRING_SERVICE = "org.omarchy.glucose"
+
+
+def keyring_store(email, password):
+    """Store the password in the desktop keyring. False if unavailable."""
+    if not shutil.which("secret-tool"):
+        return False
+    try:
+        result = subprocess.run(
+            ["secret-tool", "store", "--label", "glucose-fetch LibreLinkUp (%s)" % email,
+             "service", KEYRING_SERVICE, "account", "librelinkup:" + email.lower()],
+            input=password, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+            text=True, timeout=10,
+        )
+        return result.returncode == 0
+    except (OSError, subprocess.SubprocessError):
+        return False
+
+
+def keyring_lookup(email):
+    if not shutil.which("secret-tool"):
+        return ""
+    try:
+        result = subprocess.run(
+            ["secret-tool", "lookup", "service", KEYRING_SERVICE, "account", "librelinkup:" + email.lower()],
+            stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True, timeout=10,
+        )
+        return result.stdout.rstrip("\n") if result.returncode == 0 else ""
+    except (OSError, subprocess.SubprocessError):
+        return ""
+
+
+def resolve_credentials(section):
+    """Environment > keyring > config file.
+
+    The password does not need to live in a file at all: store it once with
+    `--set-credentials` and it lands in the keyring.
+    """
+    email = (section.get("email") or os.environ.get("GLUCOSE_LLU_EMAIL")
+             or os.environ.get("LIBRELINKUP_EMAIL") or "").strip()
+    password = (os.environ.get("GLUCOSE_LLU_PASSWORD")
+                or os.environ.get("LIBRELINKUP_PASSWORD") or "")
+    if email and not password:
+        password = keyring_lookup(email)
+    if not password:
+        password = (section.get("password") or "").strip()
+    if not email or not password:
+        raise ConfigError(
+            "LibreLinkUp credentials are not set. Run `scripts/glucose-fetch.py "
+            "--set-credentials` to enter them (stored in the desktop keyring), or set "
+            "GLUCOSE_LLU_EMAIL and GLUCOSE_LLU_PASSWORD."
+        )
+    return email, password
+
+
+def write_config(path, payload):
+    path = expand(path)
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with open(path, "w", encoding="utf-8") as handle:
+        json.dump(payload, handle, indent=2, ensure_ascii=False)
+        handle.write("\n")
+    try:
+        os.chmod(path, 0o600)
+    except OSError:
+        pass
+
+
+def run_set_credentials(config_path):
+    """Prompt for the LibreLinkUp account and store it without touching git."""
+    if not sys.stdin.isatty():
+        print("set-credentials needs an interactive terminal", file=sys.stderr)
+        return 1
+    config = load_config(config_path, required=False)
+    section = dict(config.get("librelinkup") or {})
+    default_email = (section.get("email") or os.environ.get("GLUCOSE_LLU_EMAIL") or "").strip()
+
+    prompt = "LibreLinkUp email" + (" [%s]" % default_email if default_email else "") + ": "
+    email = input(prompt).strip() or default_email
+    if not email:
+        print("email is required", file=sys.stderr)
+        return 1
+    password = getpass.getpass("LibreLinkUp password (hidden): ")
+    if not password:
+        print("password is required", file=sys.stderr)
+        return 1
+
+    try:
+        _, region = llu_login(email, password, (section.get("region") or "").strip().lower(), True)
+    except FetchError as exc:
+        print("login failed (%s): %s" % (exc.code, exc), file=sys.stderr)
+        return 1
+
+    stored = keyring_store(email, password)
+    config.setdefault("librelinkup", {})
+    config["librelinkup"]["email"] = email
+    config["librelinkup"].pop("password", None)  # never keep it in the file
+    if region:
+        config["librelinkup"]["region"] = region
+    config.setdefault("source", "librelinkup")
+    write_config(config_path, config)
+
+    print("OK: logged in as %s (region %s)" % (mask_email(email), region or "auto"))
+    if stored:
+        print("Password stored in the desktop keyring.")
+    else:
+        print("WARNING: no keyring available; export GLUCOSE_LLU_PASSWORD instead.")
+    return 0
+
+
 def llu_session(section, verbose):
     """Log in (or reuse a live cached ticket) and return (session, host)."""
-    email = (section.get("email") or "").strip()
-    password = section.get("password") or ""
-    if not email or not password:
-        raise ConfigError("librelinkup.email / librelinkup.password are not set")
+    email, password = resolve_credentials(section)
 
     # Reuse a cached token when it still has life left: the API rate-limits
     # logins, and the widget polls every minute.
@@ -383,6 +494,7 @@ def llu_session(section, verbose):
         write_json_file(token_cache_path, session)
         debug(verbose, "logged in, region=%s" % (region or "auto"))
 
+    session["email"] = email
     host = llu_host(session.get("region") or section.get("region"))
     return session, host
 
@@ -699,7 +811,7 @@ def run_whoami(config, args):
         "name": (" ".join(
             part for part in [claims.get("firstName"), claims.get("lastName")] if part
         )).strip(),
-        "email": mask_email(section.get("email")),
+        "email": mask_email(session.get("email") or section.get("email")),
         "connections": [],
         "hint": "",
     }
@@ -1116,10 +1228,15 @@ def main(argv):
     parser.add_argument("--no-cache", action="store_true")
     parser.add_argument("--whoami", action="store_true",
                         help="report the account role and follower links, then exit")
+    parser.add_argument("--set-credentials", action="store_true",
+                        help="prompt for the LibreLinkUp email/password and store the password in the keyring")
     parser.add_argument("--interpret", action="store_true",
                         help="ask Jev to classify the current trace (one TypeSafe call)")
     parser.add_argument("--debug", action="store_true")
     args = parser.parse_args(argv)
+
+    if args.set_credentials:
+        return run_set_credentials(args.config)
 
     if args.whoami:
         try:
