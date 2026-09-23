@@ -295,6 +295,7 @@ var STRINGS = {
     target: "目标区间",
     points: "条读数",
     settings: "设置",
+    account: "账号",
     configMissing: "尚未配置账号：见插件 README"
   },
   en: {
@@ -324,6 +325,7 @@ var STRINGS = {
     target: "Target",
     points: "readings",
     settings: "Settings",
+    account: "Account",
     configMissing: "No account configured yet - see the plugin README"
   }
 }

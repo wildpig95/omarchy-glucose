@@ -17,6 +17,23 @@ LibreLinkUp（瞬感通）只读接口，或你自己的 Nightscout。
 | 断了看不出来 | 药丸变暗 + 横幅提示读数年龄，统计里直接显示**最大缺口**（分钟） |
 | 不会主动告诉你 | 可选的高低血糖桌面通知，只在越界那一刻响，点一下打开详情 |
 
+## 安装
+
+```bash
+omarchy plugin add https://github.com/wildpig95/omarchy-glucose --enable
+```
+
+或手动：
+
+```bash
+git clone https://github.com/wildpig95/omarchy-glucose \
+  ~/.config/omarchy/plugins/omarchy-glucose
+omarchy plugin validate ~/.config/omarchy/plugins/omarchy-glucose
+omarchy plugin enable wildpig.glucose
+```
+
+装完按下面的「配置 LibreLinkUp」提供账号即可。**仓库里没有任何账号密码。**
+
 ## 现在显示的是假数据
 
 组件默认跑在 `mock` 源上（合成曲线），这样不用账号也能看效果。
@@ -65,6 +82,9 @@ python3 ~/.config/omarchy/plugins/wildpig.glucose/scripts/glucose-fetch.py --set
 
 提示输入邮箱（回车用配置里的）和密码（隐藏输入）；先验证能登录，再把密码存入
 keyring，并把邮箱/区域写回 config。**密码不会出现在 `config.json` 或任何 git 文件里。**
+
+> 不想敲命令？打开状态栏的血糖弹窗，点右下角的 **「账号」** 按钮，会在终端里
+> 直接弹出同一个录入流程（输完按任意键关闭）。
 
 也可用环境变量（适合临时/CI）：`GLUCOSE_LLU_EMAIL` / `GLUCOSE_LLU_PASSWORD`。
 优先级：环境变量 → keyring → `config.json` 的 `password`（旧字段，仅向下兼容）。

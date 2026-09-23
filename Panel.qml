@@ -97,6 +97,15 @@ Panel {
   function openFromHotkey() { open() }
   function closeForPopoutSwitch() { root.controller.hide() }
 
+  // Credential entry lives in a terminal, because a password prompt needs a
+  // TTY. Resolve the helper relative to this file so it works wherever the
+  // plugin is installed, and keep the window open so the result is readable.
+  function openCredentials() {
+    var helper = Qt.resolvedUrl("scripts/glucose-fetch.py").toString().replace("file://", "")
+    Quickshell.execDetached(["omarchy-launch-terminal", "bash", "-lc",
+      "python3 '" + helper + "' --set-credentials; echo; printf '\u6309\u4efb\u610f\u952e\u5173\u95ed / press any key '; read -n 1 -s"])
+  }
+
   function shiftDay(delta) {
     var next = dayOffset + delta
     if (next < 0) next = 0
@@ -537,6 +546,15 @@ Panel {
             tooltipText: root.zh ? "快捷键：R" : "Shortcut: R"
             foreground: Color.foreground
             onClicked: if (root.hostWidget && root.hostWidget.refresh) root.hostWidget.refresh()
+          }
+
+          Button {
+            text: root.t("account")
+            tooltipText: root.zh
+              ? "输入瞬感通账号密码（存进系统 keyring）"
+              : "Enter LibreLinkUp credentials (stored in the keyring)"
+            foreground: Color.foreground
+            onClicked: root.openCredentials()
           }
         }
 
